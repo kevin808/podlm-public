@@ -29,14 +29,48 @@ http://boke.tingwu.co/
 
 ## 安装和运行
 
-1. 确保您的系统已安装 Python (推荐使用 Python 3.11.5 版本)。
-2. 克隆或下载本项目到本地。
-3. 在命令行中进入项目目录。
-4. 运行以下命令启动程序:
+1. 克隆或下载本项目到本地。
 
+2. 在命令行中进入项目目录。
+
+   ```shell
+   cd podlm-public
+   ```
+
+3. 确保您的系统已安装 Python (推荐使用 Python 3.11.5 版本)，例如使用conda创建一个python环境并激活环境：
+
+   ```shell
+   conda create -n podlm-public python=3.11.5 -y
+
+   conda activate podlm-public
+   ```
+
+4. 安装依赖
+
+   需要[下载ffmpeg](https://ffmpeg.org/download.html)并将其配置到环境变量`Path`中，然后执行下面命令安装其他依赖：
+
+   ```shell
+   pip install -r requirements.txt
+   ```
+
+5. 配置`LLM模型`+`TTS服务信息`
+
+   复制[config.demo.py](config.demo.py)配置到`config.py`，然后根据注释说明修改`config.py`中的配置项
+   ```shell
+   cp config.demo.py config.py
+   ```
+
+6. 运行以下命令启动程序:
+
+   启动`api.py`
    ```python
    python api.py
-   python server_pro.py # 或者 server.py 差异在于server_pro.py多了小宇宙自动发布逻辑
+   ```
+
+   启动服务
+   ```shell
+   # 或者 server_pro.py 差异在于server_pro.py多了 小宇宙自动发布 逻辑
+   python server.py 
    ```
 
 ## 访问
@@ -46,29 +80,6 @@ http://boke.tingwu.co/
 访问 http://127.0.0.1:8811/list.html 所有合成记录
 
 访问 http://127.0.0.1:8811/del.html 可以删除合成记录
-
-## 大语言模型配置
-
-server.py 和 server_pro.py 中的llm需要配置自己的
-
-有3处
-
-api_url = ''
-
-api_key = ''
-
-请自行查找替换
-
-## TTS服务配置
-
-server_pro.py 第330行
-
-server.py 第169行
-
-url = f"http://abc.com/tts?text={text}&language=中英混合&anchor_type={anchor_type}"
-
-abc.com 请替换为您的TTS服务地址
-
 
 ## 联系方式
 

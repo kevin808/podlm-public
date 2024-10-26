@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import shutil
 
+import config
+
 app = FastAPI()
 
 class TaskCreate(BaseModel):
@@ -31,7 +33,7 @@ def log(message):
 
 def read_tasks():
     try:
-        with open('task_list.json', 'r') as f:
+        with open(config.task_list_file, 'r') as f:
             content = f.read()
             if not content:
                 return []
@@ -39,12 +41,12 @@ def read_tasks():
     except FileNotFoundError:
         return []
     except json.JSONDecodeError:
-        log("task_list.json 文件格式错误，重置为空列表")
+        log(f"{config.task_list_file} 文件格式错误，重置为空列表")
         return []
 
 def write_tasks(tasks):
-    with open('task_list.json', 'w') as f:
-        json.dump(tasks, f)
+    with open(config.task_list_file, 'w') as f:
+        json.dump(tasks, f, indent=4)
 
 @app.post("/post_task")
 async def post_task(task: TaskCreate):
@@ -52,11 +54,7 @@ async def post_task(task: TaskCreate):
     task_id = str(uuid.uuid4())
     log(f"生成任务ID: {task_id}")
     
-    # 创建任务文件夹
-    os.makedirs(task_id, exist_ok=True)
-    log(f"创建任务文件夹: {task_id}")
-    
-    # 添加任务到 task_list.json
+    # 添加任务
     new_task = Task(
         taskId=task_id,
         url=task.url,
@@ -69,7 +67,7 @@ async def post_task(task: TaskCreate):
     tasks = read_tasks()
     tasks.append(new_task.dict())
     write_tasks(tasks)
-    log(f"成功将新任务添加到 task_list.json")
+    log(f"成功将新任务添加到 {config.task_list_file}")
     
     log(f"任务创建成功，返回任务ID: {task_id}")
     return {"taskId": task_id}
@@ -86,7 +84,7 @@ async def get_task(taskId: str):
         raise HTTPException(status_code=404, detail="Task not found")
     
     log(f"找到任务，任务ID: {taskId}")
-    wav_file = os.path.join(taskId, f"{taskId}.wav")
+    wav_file = config.get_task_file(taskId, f"{taskId}.wav")
     if os.path.exists(wav_file):
         log(f"音频文件已存在，任务ID: {taskId}")
         task['status'] = 'completed'
@@ -95,7 +93,7 @@ async def get_task(taskId: str):
         log(f"音频文件不存在，任务ID: {taskId}")
     
     # 检查并读取title.txt文件
-    title_file = os.path.join(taskId, "title.txt")
+    title_file = config.get_task_file(taskId, "title.txt")
     if os.path.exists(title_file):
         with open(title_file, 'r', encoding='utf-8') as f:
             task['title'] = f.read().strip()
@@ -103,7 +101,7 @@ async def get_task(taskId: str):
         task['title'] = None
     
     # 检查并读取dialogue.json文件
-    dialogue_file = os.path.join(taskId, "dialogue.json")
+    dialogue_file = config.get_task_file(taskId, "dialogue.json")
     if os.path.exists(dialogue_file):
         with open(dialogue_file, 'r', encoding='utf-8') as f:
             task['dialogue'] = json.load(f)
@@ -111,7 +109,7 @@ async def get_task(taskId: str):
         task['dialogue'] = None
     
     # 检查并读取status.json文件
-    status_file = os.path.join(taskId, "status.json")
+    status_file = config.get_task_file(taskId, "status.json")
     if os.path.exists(status_file):
         with open(status_file, 'r', encoding='utf-8') as f:
             task['status_details'] = json.load(f)
@@ -130,7 +128,7 @@ async def get_list():
     for task in reversed(tasks):
         if task['status'] == 'completed':
             # 检查并读取title.txt文件
-            title_file = os.path.join(task['taskId'], "title.txt")
+            title_file = config.get_task_file(task['taskId'], "title.txt")
             if os.path.exists(title_file):
                 with open(title_file, 'r', encoding='utf-8') as f:
                     task['title'] = f.read().strip()
@@ -138,7 +136,7 @@ async def get_list():
                 task['title'] = None
             
             # 检查并读取dialogue.json文件
-            dialogue_file = os.path.join(task['taskId'], "dialogue.json")
+            dialogue_file = config.get_task_file(task['taskId'], "dialogue.json")
             if os.path.exists(dialogue_file):
                 with open(dialogue_file, 'r', encoding='utf-8') as f:
                     task['dialogue'] = json.load(f)
@@ -146,7 +144,7 @@ async def get_list():
                 task['dialogue'] = None
             
             # 检查音频文件是否存在
-            wav_file = os.path.join(task['taskId'], f"{task['taskId']}.wav")
+            wav_file = config.get_task_file(task['taskId'], f"{task['taskId']}.wav")
             if os.path.exists(wav_file):
                 task['audioUrl'] = f"/audio/{task['taskId']}/{task['taskId']}.wav"
             else:
@@ -160,7 +158,7 @@ async def get_list():
 @app.get("/audio/{taskId}/{filename}")
 async def get_audio(taskId: str, filename: str):
     log(f"收到获取音频文件请求，任务ID: {taskId}，文件名: {filename}")
-    file_path = os.path.join(taskId, filename)
+    file_path = config.get_task_file(taskId, filename)
     if not os.path.exists(file_path):
         log(f"音频文件不存在，路径: {file_path}")
         raise HTTPException(status_code=404, detail="Audio file not found")
@@ -209,7 +207,7 @@ async def delete_task(taskId: str):
     write_tasks(tasks)
     
     # 删除任务目录
-    task_dir = os.path.join(os.getcwd(), taskId)
+    task_dir = config.get_task_file(taskId)
     if os.path.exists(task_dir):
         shutil.rmtree(task_dir)
         log(f"已删除任务目录: {task_dir}")
