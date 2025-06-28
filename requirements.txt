@@ -6,3 +6,5 @@ Requests==2.32.3
 selenium==4.25.0
 uvicorn==0.32.0
 webdriver_manager==4.0.2
+azure-cognitiveservices-speech==1.33.0
+openai>=1.28.0

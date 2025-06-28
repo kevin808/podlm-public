@@ -9,6 +9,13 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import re
 import config
+from openai import OpenAI
+
+# Initialize OpenAI client at module level
+client = OpenAI(
+    api_key=config.api_key,
+    base_url=config.api_url,
+)
 
 def log(message):
     print(f"[{datetime.now().isoformat()}] {message}")
@@ -75,27 +82,20 @@ def fetch_url_content(url, task_id):
 
 def generate_podcast_title(content):
     def llm_request():
-        api_url = config.api_url
-        api_key = config.api_key
-        model = config.model
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        data = {
-            'model': model,
-            'messages': [
-                {'role': 'system', 'content': '你是一个播客标题生成器，请根据给定的内容生成一个吸引人的播客标题，标题需要有内涵一点。不要输出任何emoji符号，严禁输出《》：等符号，严禁输出《》：等符号，严禁输出《》：等符号。'},
-                {'role': 'user', 'content': f"请为以下内容生成一个播客标题:\n{content}"} 
-            ]
-        }
-        response = requests.post(api_url, headers=headers, json=data)
-        response.raise_for_status()
-        result = response.json()
-        if 'choices' in result and len(result['choices']) > 0:
-            return result['choices'][0]['message']['content'].strip()
-        else:
-            raise ValueError('API返回的数据格式不正确')
+        try:
+            response = client.chat.completions.create(
+                model=config.model,
+                messages=[
+                    {'role': 'system', 'content': '你是一个播客标题生成器，请根据给定的内容生成一个吸引人的播客标题，标题需要有内涵一点。不要输出任何emoji符号，严禁输出《》：等符号，严禁输出《》：等符号，严禁输出《》：等符号。'},
+                    {'role': 'user', 'content': f"请为以下内容生成一个播客标题:\n{content}"}
+                ],
+                max_tokens=300
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            log(f"LLM API 调用失败: {str(e)}")
+            raise
 
     for attempt in range(2):
         try:
@@ -177,13 +177,12 @@ def upload_to_xiaoyuzhou(task_id):
     log(f"开始上传任务 {task_id} 到小宇宙")
 
     # 自动下载并设置Edge驱动
-    from selenium import webdriver
     from selenium.webdriver.edge.service import Service
     from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
     # 设置Edge浏览器选项
     edge_options = Options()
-    edge_options.add_argument(f"user-data-dir=C:\\edge")
+    edge_options.add_argument(f"user-data-dir=./edge")
 
     # 使用EdgeChromiumDriverManager自动下载并设置驱动
     service = Service(EdgeChromiumDriverManager().install())
@@ -285,27 +284,20 @@ def generate_outline(content):
     log("开始生成内容大纲")
     
     def llm_request(prompt):
-        api_url = config.api_url
-        api_key = config.api_key
-        model = config.model
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        data = {
-            'model': model,
-            'messages': [
-                {'role': 'system', 'content': '你是一个专业的播客内容编辑，请根据给定的内容生成一个简洁的播客内容大纲。'},
-                {'role': 'user', 'content': prompt}
-            ]
-        }
-        response = requests.post(api_url, headers=headers, json=data)
-        response.raise_for_status()
-        result = response.json()
-        if 'choices' in result and len(result['choices']) > 0:
-            return result['choices'][0]['message']['content'].strip()
-        else:
-            raise ValueError('API返回的数据格式不正确')
+        try:
+            response = client.chat.completions.create(
+                model=config.model,
+                messages=[
+                    {'role': 'system', 'content': '你是一个专业的播客内容编辑，请根据给定的内容生成一个简洁的播客内容大纲。'},
+                    {'role': 'user', 'content': prompt}
+                ],
+                max_tokens=300
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            log(f"LLM API 调用失败: {str(e)}")
+            raise
 
     prompt = f"请为以下内容生成一个简洁的播客内容大纲，包括3-5个主要点：\n\n{content}"
 
@@ -325,15 +317,22 @@ def generate_outline(content):
     return " "  # 这行代码实际上永远不会执行，因为上面的循环会处理所有情况
 
 def tts_request(text, anchor_type):
-    url = config.get_tts_url(text, anchor_type)
-    for _ in range(3):
-        try:
-            response = requests.get(url, timeout=120, headers=config.get_tts_headers())
-            response.raise_for_status()
-            return response.content
-        except requests.RequestException as e:
-            log(f"TTS请求失败: {str(e)}，正在重试...")
-    log("TTS请求失败3次，放弃尝试")
+    # 尝试使用 Azure Speech Service
+    try:
+        import speech
+        # 检查是否配置了 Azure Speech 服务
+        if hasattr(config, 'azure_speech_key') and config.azure_speech_key != "your_azure_speech_key":
+            log(f"使用 Azure Speech Service 生成音频，角色: {anchor_type}")
+            audio_data = speech.generate_audio_with_azure(text, anchor_type)
+            if audio_data:
+                return audio_data
+            else:
+                log("Azure Speech Service 生成失败")
+    except ImportError:
+        log("Azure Speech SDK 未安装")
+    except Exception as e:
+        log(f"Azure Speech Service 错误: {str(e)}")
+    
     return None
 
 def generate_audio(dialogue, task_id):
@@ -386,93 +385,83 @@ def update_task_status(task_id, status, progress):
     log(f"任务 {task_id} 状态更新完成")
 
 def generate_dialogue(text_content):
-    api_url = config.api_url
-    api_key = config.api_key
-    model = config.model
     log("开始生成对话内容")
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}'
-    }
     all_content = []
 
     # 第一次 LLM 请求
     if config.need_second_dialogue:
-        data = {
-            'model': model,
-            'messages': [
-                {'role': 'system', 'content': f'你是一个播客对话内容生成器,你需要将我给你的内容转换为自然的对话,主持人叫{config.host_speaker}。'+'对话以探讨交流形式,不要问答形式,正式对话开始前需要有引入主题的对话,需要欢迎大家收听本期播客,对话需要更口语化一点日常交流,你输出的内容不要结束对话,后面我还会补充更多对话,一定不能有任何结束性对话,直接结束就行,后面我还会补充内容。总内容字数需要大于10000字。在保证完整性的同时你还需要给我增加补充相关内容,一定要延伸补充,对话不是简单的一问一答,需要在每个发言中都抛出更多的观点和内容知识,需要补充更多的内容,不要使用提问形式使用交流探讨形式。以JSON格式输出,除了json内容不要输出任何提示性内容,直接json输出,不要提示性内容以及任何格式内容,严禁输出 ```json 此类格式性内容,直接输出json即可,格式严格参考 [{"role": "host", "content": "你好"}, {"role": "guest", "content": "你好"}]'},
-                {'role': 'user', 'content': f"请将以下内容转换成播客对话,对话内容content不要加身份前缀直接出对话内容即可,内容如下:\n{text_content}"}
-            ]
-        }
-        log("正在发送第一次请求到 LLM API")
-        response = requests.post(api_url, headers=headers, json=data)
-        if response.status_code == 200:
+        try:
+            log("正在发送第一次请求到 LLM API")
+            response = client.chat.completions.create(
+                model=config.model,
+                messages=[
+                    {'role': 'system', 'content': f'你是一个播客对话内容生成器,你需要将我给你的内容转换为自然的对话,主持人叫{config.host_speaker}。'+'对话以探讨交流形式,不要问答形式,正式对话开始前需要有引入主题的对话,需要欢迎大家收听本期播客,对话需要更口语化一点日常交流,你输出的内容不要结束对话,后面我还会补充更多对话,一定不能有任何结束性对话,直接结束就行,后面我还会补充内容。总内容字数需要大于10000字。在保证完整性的同时你还需要给我增加补充相关内容,一定要延伸补充,对话不是简单的一问一答,需要在每个发言中都抛出更多的观点和内容知识,需要补充更多的内容,不要使用提问形式使用交流探讨形式。以JSON格式输出,除了json内容不要输出任何提示性内容,直接json输出,不要提示性内容以及任何格式内容,严禁输出 ```json 此类格式性内容,直接输出json即可,格式严格参考 [{"role": "host", "content": "你好"}, {"role": "guest", "content": "你好"}]'},
+                    {'role': 'user', 'content': f"请将以下内容转换成播客对话,对话内容content不要加身份前缀直接出对话内容即可,内容如下:\n{text_content}"}
+                ],
+                max_tokens=4000
+            )
+            
             log("成功接收第一次 LLM API 响应")
-            result = response.json()
-            if 'choices' in result and len(result['choices']) > 0:
-                content = result['choices'][0]['message']['content']
-                log(f"API 返回的原始内容: {content}")
+            content = response.choices[0].message.content
+            log(f"API 返回的原始内容: {content}")
+            
+            try:
+                content = content.replace('```json', '').replace('```', '')
+                dialogue = json.loads(content)
+                all_content.extend(dialogue)
+                log(f"成功解析第一次对话内容，共 {len(dialogue)} 条对话")
+            except json.JSONDecodeError as e:
+                log(f"JSON 解析错误: {str(e)}")
+                log("尝试修复 JSON 格式")
+                fixed_content = content.replace("'", '"').replace('\n', '\\n')
                 try:
-                    content = content.replace('```json', '').replace('```', '')
-                    dialogue = json.loads(content)
+                    dialogue = json.loads(fixed_content)
                     all_content.extend(dialogue)
-                    log(f"成功解析第一次对话内容，共 {len(dialogue)} 条对话")
+                    log(f"修复后成功解析对话内容，共 {len(dialogue)} 条对话")
                 except json.JSONDecodeError as e:
-                    log(f"JSON 解析错误: {str(e)}")
-                    log("尝试修复 JSON 格式")
-                    fixed_content = content.replace("'", '"').replace('\n', '\\n')
-                    try:
-                        dialogue = json.loads(fixed_content)
-                        all_content.extend(dialogue)
-                        log(f"修复后成功解析对话内容，共 {len(dialogue)} 条对话")
-                    except json.JSONDecodeError as e:
-                        log(f"修复后仍然无法解析 JSON: {str(e)}")
-                        return []
-        else:
-            log(f"第一次生成对话内容失败，状态码: {response.status_code}")
-            return []
-
-        # 第二次 LLM 请求
-        data = {
-            'model': model,
-            'messages': [
-                {'role': 'system', 'content': '你是一位播客内容编辑,我会给你一些参考内容以及你之前生成的播客内容,在这些内容基础上补充对话内容,补充的内容不要跟前的内容产生冲突,并且你只需要输出补充的内容即可,对话需要更口语化一点日常交流,对话不能是简单的一问一答,需要是探讨交流形式,结束总结性需要有总结性对话,总内容字数需要大于10000字。保持内容的完整性,在保证完整性的同时你还需要给我增加补充相关内容,一定要延伸补充,对话不是简单的一问一答应该在每个发言中都抛出更多的观点和内容知识,你需要补充更多的内容,不要使用提问对话的形式,并以JSON格式输出。注意,输出json格式,除了json内容不要输出任何提示性内容,直接json输出,不要提示性内容以及任何格式内容,严禁输出 ```json 此类格式性内容,直接输出json即可,格式参考 [{"role": "host", "content": "你好"}, {"role": "guest", "content": "你好"}]'},
-                {'role': 'user', 'content': f"参考内容如下:\n{text_content}。\n你之前的生成的内容：{content}"}
-            ]
-        }
-        log("正在发送第二次请求到 LLM API")
-        response = requests.post(api_url, headers=headers, json=data)
-        if response.status_code == 200:
+                    log(f"修复后仍然无法解析 JSON: {str(e)}")
+                    return []
+                    
+            # 第二次 LLM 请求
+            log("正在发送第二次请求到 LLM API")
+            response = client.chat.completions.create(
+                model=config.model,
+                messages=[
+                    {'role': 'system', 'content': '你是一位播客内容编辑,我会给你一些参考内容以及你之前生成的播客内容,在这些内容基础上补充对话内容,补充的内容不要跟前的内容产生冲突,并且你只需要输出补充的内容即可,对话需要更口语化一点日常交流,对话不能是简单的一问一答,需要是探讨交流形式,结束总结性需要有总结性对话,总内容字数需要大于10000字。保持内容的完整性,在保证完整性的同时你还需要给我增加补充相关内容,一定要延伸补充,对话不是简单的一问一答应该在每个发言中都抛出更多的观点和内容知识,你需要补充更多的内容,不要使用提问对话的形式,并以JSON格式输出。注意,输出json格式,除了json内容不要输出任何提示性内容,直接json输出,不要提示性内容以及任何格式内容,严禁输出 ```json 此类格式性内容,直接输出json即可,格式参考 [{"role": "host", "content": "你好"}, {"role": "guest", "content": "你好"}]'},
+                    {'role': 'user', 'content': f"参考内容如下:\n{text_content}。\n你之前的生成的内容：{content}"}
+                ],
+                max_tokens=4000
+            )
+            
             log("成功接收第二次 LLM API 响应")
-            result = response.json()
-            if 'choices' in result and len(result['choices']) > 0:
-                content = result['choices'][0]['message']['content'] or ""
-                log(f"API 返回的原始内容: {content}")
+            content = response.choices[0].message.content or ""
+            log(f"API 返回的原始内容: {content}")
+            
+            try:
+                content = content.replace('```json', '').replace('```', '')
+                dialogue = json.loads(content)
+                all_content.extend(dialogue)
+                log(f"成功解析第二次对话内容，共 {len(dialogue)} 条对话")
+            except json.JSONDecodeError as e:
+                log(f"JSON 解析错误: {str(e)}")
+                log("尝试修复 JSON 格式")
+                fixed_content = content.replace("'", '"').replace('\n', '\\n')
                 try:
-                    content = content.replace('```json', '').replace('```', '')
-                    dialogue = json.loads(content)
+                    dialogue = json.loads(fixed_content)
                     all_content.extend(dialogue)
-                    log(f"成功解析第二次对话内容，共 {len(dialogue)} 条对话")
+                    log(f"修复后成功解析对话内容，共 {len(dialogue)} 条对话")
                 except json.JSONDecodeError as e:
-                    log(f"JSON 解析错误: {str(e)}")
-                    log("尝试修复 JSON 格式")
-                    fixed_content = content.replace("'", '"').replace('\n', '\\n')
-                    try:
-                        dialogue = json.loads(fixed_content)
-                        all_content.extend(dialogue)
-                        log(f"修复后成功解析对话内容，共 {len(dialogue)} 条对话")
-                    except json.JSONDecodeError as e:
-                        log(f"修复后仍然无法解析 JSON: {str(e)}")
-        else:
-            log(f"第二次生成对话内容失败，状态码: {response.status_code}")
+                    log(f"修复后仍然无法解析 JSON: {str(e)}")
+                    
+        except Exception as e:
+            log(f"生成对话内容时发生错误: {str(e)}")
+            return []
 
     log(f"总共生成对话内容 {len(all_content)} 条")
     if config.truncate_dialogue_count > 0:
         log(f"截取前 {config.truncate_dialogue_count} 条")
         all_content = all_content[:config.truncate_dialogue_count]
     return all_content
-
 
 def merge_audio_files(audio_files, task_id):
     log(f"开始合并任务 {task_id} 的音频文件")

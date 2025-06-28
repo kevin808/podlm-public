@@ -25,6 +25,22 @@ api_url = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 api_key = 'your_api_key'
 # 模型名称
 model = 'glm-4-plus'
+
+# Azure Speech 服务配置 (TTS)
+azure_speech_key = "your_azure_speech_key"
+azure_speech_region = "eastus"  # 根据您的Azure服务区域修改
+azure_speech_resource_id = "your_azure_speech_resource_id"
+
+# 语音配置映射，key是角色名称，value是Azure TTS的语音名称
+azure_hd_voices = {
+    host_speaker: "zh-CN-YunxiNeural",  # 主持人语音
+    guest_speaker: "zh-CN-XiaoxuanNeural"  # 嘉宾语音
+}
+
+# 语音温度参数 (1.0 是默认值，更高的值会增加表现力)
+voice_temperature = 1.0
+# 语音速率调整 (如 "-10%" 表示减慢10%)
+prosody_rate = None
     
 # 【必选】获取TTS服务地址 - GET请求 - 请替换为您的TTS服务地址，例如 GPT-SoVITS、F5 TTS、其他在线TTS
 def get_tts_url(text, anchor_type):
